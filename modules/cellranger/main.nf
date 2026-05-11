@@ -1,6 +1,6 @@
 process CELLRANGER_COUNT {
-    tag "$sample_id"
-    publishDir "${params.outdir}/cellranger/${sample_id}", mode: 'copy'
+    tag { sample_id }
+    publishDir { "${params.outdir}/cellranger/${sample_id}" }, mode: 'copy'
 
     container 'nf-core/cellranger:10.0.0'
 
@@ -45,8 +45,8 @@ process CELLRANGER_COUNT {
 }
 
 process CELLRANGER_MULTI {
-    tag "$sample_id"
-    publishDir "${params.outdir}/cellranger/${sample_id}", mode: 'copy'
+    tag { sample_id }
+    publishDir { "${params.outdir}/cellranger/${sample_id}" }, mode: 'copy'
 
     container 'nf-core/cellranger:10.0.0'
 

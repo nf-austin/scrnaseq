@@ -1,6 +1,6 @@
 process SCANPY_QC {
-    tag "$sample_id"
-    publishDir "${params.outdir}/qc/${sample_id}", mode: 'copy'
+    tag { sample_id }
+    publishDir { "${params.outdir}/qc/${sample_id}" }, mode: 'copy'
 
     conda "${moduleDir}/environment.yml"
 
