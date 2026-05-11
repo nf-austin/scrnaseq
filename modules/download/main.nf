@@ -14,7 +14,7 @@ process DOWNLOAD_REFERENCE {
     """
     set -euo pipefail
     mkdir refdata
-    curl -fsSL ${url} | tar -xz -C refdata --strip-components=1
+    wget -q -O - ${url} | tar -xz -C refdata --strip-components=1
     """
 }
 
@@ -33,6 +33,6 @@ process DOWNLOAD_PROBE_SET {
     script:
     """
     set -euo pipefail
-    curl -fsSL -o probe_set.csv ${url}
+    wget -q -O probe_set.csv ${url}
     """
 }
