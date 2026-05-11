@@ -2,7 +2,7 @@ process DOWNLOAD_REFERENCE {
     tag "Downloading Reference"
     publishDir "${params.outdir}/reference", mode: 'copy'
 
-    container 'quay.io/nf-core/ubuntu:22.04'
+    container 'quay.io/biocontainers/wget:1.25.0'
 
     input:
     val url
