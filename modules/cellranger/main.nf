@@ -22,7 +22,7 @@ process CELLRANGER_COUNT {
     # Derive the FASTQ sample prefix from 10x file naming
     # (<prefix>_S<n>_L<lane>_R<read>_001.fastq.gz). Comma-join in the rare
     # case the directory contains multiple prefixes for the same library.
-    FASTQ_PREFIX=\$(find ${fastqs} -maxdepth 1 -name '*_S*_L*_R*_001.fastq.gz' -printf '%f\\n' \\
+    FASTQ_PREFIX=\$(find -L ${fastqs} -maxdepth 1 -name '*_S*_L*_R*_001.fastq.gz' -printf '%f\\n' \\
         | sed -E 's/_S[0-9]+_L[0-9]+_R[12]_001\\.fastq\\.gz\$//' \\
         | sort -u \\
         | paste -sd, -)
