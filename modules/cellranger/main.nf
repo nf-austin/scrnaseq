@@ -2,7 +2,7 @@ process CELLRANGER_COUNT {
     tag { sample_id }
     publishDir { "${params.outdir}/cellranger/${sample_id}" }, mode: 'copy'
 
-    container 'nfcore/cellranger:10.0.0'
+    container 'quay.io/nf-core/cellranger:10.0.0'
 
     input:
     tuple val(sample_id), path(fastqs)
