@@ -5,7 +5,9 @@ process CELLRANGER_COUNT {
     container 'quay.io/nf-core/cellranger:10.0.0'
 
     input:
-    tuple val(sample_id), path(fastqs)
+    // stageAs gives the FASTQ dir a fixed neutral name so it doesn't collide
+    // with the cellranger --id output directory (which is named ${sample_id}).
+    tuple val(sample_id), path(fastqs, stageAs: 'fastq_input')
     path transcriptome
 
     output:
@@ -16,26 +18,27 @@ process CELLRANGER_COUNT {
     """
     set -euo pipefail
 
-    # Disable Cell Ranger telemetry (CR >= 9). Ignored on older versions.
+    # Best-effort telemetry suppression (CR >= 9). Persist the disable flag in
+    # the host-mounted HOME and clear any per-invocation env opt-ins.
     cellranger telemetry disable >/dev/null 2>&1 || true
 
     # Derive the FASTQ sample prefix from 10x file naming
     # (<prefix>_S<n>_L<lane>_R<read>_001.fastq.gz). Comma-join in the rare
     # case the directory contains multiple prefixes for the same library.
-    FASTQ_PREFIX=\$(find -L ${fastqs} -maxdepth 1 -name '*_S*_L*_R*_001.fastq.gz' -printf '%f\\n' \\
+    FASTQ_PREFIX=\$(find -L fastq_input -maxdepth 1 -name '*_S*_L*_R*_001.fastq.gz' -printf '%f\\n' \\
         | sed -E 's/_S[0-9]+_L[0-9]+_R[12]_001\\.fastq\\.gz\$//' \\
         | sort -u \\
         | paste -sd, -)
 
     if [ -z "\${FASTQ_PREFIX}" ]; then
-        echo "ERROR: no 10x-style FASTQs found in ${fastqs}" >&2
+        echo "ERROR: no 10x-style FASTQs found in fastq_input" >&2
         exit 1
     fi
 
     cellranger count \\
         --id=${sample_id} \\
         --transcriptome=${transcriptome} \\
-        --fastqs=${fastqs} \\
+        --fastqs=fastq_input \\
         --sample=\${FASTQ_PREFIX} \\
         --expect-cells=${params.expect_cells} \\
         --create-bam=${params.create_bam} \\
@@ -49,7 +52,7 @@ process CELLRANGER_MULTI {
     tag { sample_id }
     publishDir { "${params.outdir}/cellranger/${sample_id}" }, mode: 'copy'
 
-    container 'nf-core/cellranger:10.0.0'
+    container 'quay.io/nf-core/cellranger:10.0.0'
 
     input:
     tuple val(sample_id), path(multi_config)
