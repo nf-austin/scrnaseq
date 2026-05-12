@@ -38,6 +38,7 @@ process CELLRANGER_COUNT {
         --fastqs=${fastqs} \\
         --sample=\${FASTQ_PREFIX} \\
         --expect-cells=${params.expect_cells} \\
+        --create-bam=${params.create_bam} \\
         --localcores=${task.cpus} \\
         --localmem=${task.memory.toGiga()} \\
         --disable-ui

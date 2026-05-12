@@ -131,6 +131,7 @@ nextflow run main.nf \
 | `--run_flex` | `false` | Enable `cellranger multi` mode. |
 | `--run_scrublet` | `true` | Execute Scrublet for doublet prediction during the QC process. |
 | `--expect_cells` | `10000` | Target cell recovery for `cellranger count`. |
+| `--create_bam` | `true` | Whether `cellranger count` writes BAM output. Required by Cell Ranger >= 8 (no default in the tool itself). Set `false` to skip BAM generation for faster, smaller runs. |
 
 ### Resource limits
 
