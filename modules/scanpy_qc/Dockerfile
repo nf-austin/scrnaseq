@@ -17,7 +17,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         procps \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir \
+# scrublet pulls in annoy, which ships no wheel for this platform and compiles
+# from source -- it needs a C++ toolchain that python:*-slim does not carry.
+# Installed and removed in one layer so the toolchain does not land in the image.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+ && pip install --no-cache-dir \
         'scanpy>=1.11' \
         'anndata>=0.11' \
         numpy \
@@ -26,7 +31,9 @@ RUN pip install --no-cache-dir \
         scrublet \
         h5py \
         leidenalg \
-        python-igraph
+        python-igraph \
+ && apt-get purge -y --auto-remove build-essential \
+ && rm -rf /var/lib/apt/lists/*
 
 # Fail the build rather than a run if an import is broken.
 RUN python3 -c 'import scanpy, anndata, numpy, scipy, sklearn, h5py, leidenalg; print("All packages OK")'
