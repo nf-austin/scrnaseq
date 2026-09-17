@@ -8,7 +8,6 @@ nextflow.enable.dsl = 2
 include { DOWNLOAD_REFERENCE; DOWNLOAD_PROBE_SET } from './modules/download'
 include { CELLRANGER_COUNT; CELLRANGER_MULTI }     from './modules/cellranger'
 include { SCANPY_QC }                              from './modules/scanpy_qc'
-include { DUMMY_PROBE_SET }                        from './modules/dummy'
 
 // -----------------------------------------------------------------------------
 // FUNCTIONS
@@ -34,36 +33,163 @@ def get_probe_set_url() {
     error "Unsupported combination of species and flex version for auto-download. Please provide --probe_set_url directly."
 }
 
+
+def helpMessage() {
+    log.info """
+    nf-austin/scrnaseq -- 10x Cell Ranger + species-aware scanpy QC
+
+    Usage, samplesheet (recommended; this is what Seqera Platform launches with):
+      nextflow run main.nf -profile docker --input samplesheet.csv --outdir results
+
+      samplesheet.csv columns: sample, fastq_dir, multi_config
+      Populate fastq_dir for standard runs, or multi_config with --run_flex true.
+
+    Usage, ad-hoc globs:
+      nextflow run main.nf -profile docker --fastq_dirs "data/*"
+      nextflow run main.nf -profile docker --run_flex true --multi_configs "configs/*.csv"
+
+    Required (one of):
+      --input         Samplesheet CSV.
+      --fastq_dirs    Directory glob, one directory of FASTQs per sample.
+      --multi_configs CSV glob, one Cell Ranger multi config per run (--run_flex true).
+
+    Common options:
+      --outdir        Output directory (default: ${params.outdir}).
+      --species       human or mouse (default: ${params.species}).
+      --run_flex      Flex / multiplexed mode (default: ${params.run_flex}).
+      --run_scrublet  Run Scrublet doublet detection (default: ${params.run_scrublet}).
+
+    On HPC, pre-stage the references -- compute nodes usually have no outbound
+    network:
+      --transcriptome Pre-downloaded Cell Ranger reference directory.
+      --probe_set     Pre-downloaded Flex probe set CSV.
+
+    Add `-profile slurm,singularity --slurm_queue <partition>` and use absolute
+    paths. See the README for the HPC notes.
+    """.stripIndent()
+}
+
+/**
+ * Resolve one samplesheet entry to a file or directory.
+ *
+ * A relative entry is resolved against the samplesheet's OWN directory first,
+ * which is what someone editing that sheet expects. Nextflow's default is the
+ * launch directory, and on Seqera Platform the launch directory is the work
+ * directory -- so a relative path there silently resolves somewhere unrelated.
+ * Falls back to launch-dir resolution, and only then reports the entry missing.
+ */
+def resolveInput(path, sheet_dir, row_num, column) {
+    if (path.startsWith('/') || path ==~ /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/.*/) {
+        return file(path, checkIfExists: true)
+    }
+    def beside_sheet = sheet_dir.resolve(path)
+    if (beside_sheet.exists()) {
+        return beside_sheet
+    }
+    def from_launch = file(path)
+    if (from_launch.exists()) {
+        return from_launch
+    }
+    error "Samplesheet row ${row_num}: '${column}' not found as '${beside_sheet}' (relative to the samplesheet) nor as '${from_launch}' (relative to the launch directory). Use an absolute path."
+}
+
+/**
+ * Turn samplesheet rows into (id, path) tuples.
+ *
+ * One sheet covers both modes: `fastq_dir` is required when --run_flex is false,
+ * `multi_config` when it is true. The unused column may be blank or absent.
+ *
+ * Validated eagerly over the fully-read row list rather than inside a channel
+ * closure: errors raised in a closure are lazy -- they never fire under
+ * -preview, and in a real run they surface only once the channel is consumed.
+ * A bad samplesheet must fail at launch, before Platform provisions compute.
+ */
+def buildSamples(rows, sheet_dir) {
+    if (!rows) {
+        error "Samplesheet is empty: ${params.input}"
+    }
+    if (!rows[0].containsKey('sample')) {
+        error "Samplesheet needs a 'sample' column. Found: ${rows[0].keySet().join(', ')}"
+    }
+    def col = params.run_flex ? 'multi_config' : 'fastq_dir'
+    if (!rows[0].containsKey(col)) {
+        error "Samplesheet needs a '${col}' column when --run_flex is ${params.run_flex}. Found: ${rows[0].keySet().join(', ')}"
+    }
+
+    def seen = [] as Set
+    return rows.withIndex().collect { row, idx ->
+        def sample_id = row.sample?.trim()
+        if (!sample_id) {
+            error "Samplesheet row ${idx + 1} has an empty 'sample' value"
+        }
+        if (!seen.add(sample_id)) {
+            error "Samplesheet has a duplicate sample id: '${sample_id}'. Sample ids become output paths and must be unique."
+        }
+        def path = row[col]?.trim()
+        if (!path) {
+            error "Samplesheet row ${idx + 1} ('${sample_id}') has an empty '${col}' value, which is required when --run_flex is ${params.run_flex}"
+        }
+        tuple(sample_id, resolveInput(path, sheet_dir, idx + 1, col))
+    }
+}
+
 // -----------------------------------------------------------------------------
 // WORKFLOW
 // -----------------------------------------------------------------------------
 workflow {
-    // 1. Ingest inputs
-    if (params.run_flex) {
-        Channel.fromPath(params.multi_configs)
-            | map { file -> tuple(file.baseName, file) }
-            | set { ch_samples }
-    } else {
-        Channel.fromPath(params.fastq_dirs, type: 'dir')
-            | map { dir -> tuple(dir.baseName, dir) }
-            | set { ch_samples }
+    if (params.help) {
+        helpMessage()
+        return
     }
+
+    // 1. Ingest inputs
+    def glob_param = params.run_flex ? params.multi_configs : params.fastq_dirs
+    def glob_name  = params.run_flex ? '--multi_configs' : '--fastq_dirs'
+    if (params.input && glob_param) {
+        error "Use either --input (samplesheet) or ${glob_name} (glob), not both."
+    }
+    if (!params.input && !glob_param) {
+        error "No input given. Provide --input samplesheet.csv or ${glob_name}. Run with --help for details."
+    }
+
+    if (params.input) {
+        def sheet = file(params.input, checkIfExists: true)
+        def rows = sheet.splitCsv(header: true, strip: true)
+        ch_samples = channel.fromList(buildSamples(rows, sheet.parent))
+    }
+    else if (params.run_flex) {
+        ch_samples = channel.fromPath(params.multi_configs, checkIfExists: true)
+            .map { f -> tuple(f.baseName, f) }
+    }
+    else {
+        ch_samples = channel.fromPath(params.fastq_dirs, type: 'dir', checkIfExists: true)
+            .map { d -> tuple(d.baseName, d) }
+    }
+
+    log.info """
+    P I P E L I N E   nf-austin/scrnaseq
+    ====================================
+    input    : ${params.input ?: glob_param}
+    mode     : ${params.run_flex ? 'Flex / multi' : 'standard count'}
+    species  : ${params.species}
+    scrublet : ${params.run_scrublet}
+    outdir   : ${params.outdir}
+    """.stripIndent()
 
     // 2. Resolve references
     if (params.transcriptome) {
-        ch_transcriptome = Channel.fromPath(params.transcriptome).first()
+        ch_transcriptome = channel.fromPath(params.transcriptome, checkIfExists: true).first()
     } else {
         ch_transcriptome = DOWNLOAD_REFERENCE(get_transcriptome_url()).first()
     }
 
+    // The probe set is only needed in Flex mode. CELLRANGER_COUNT does not take
+    // one, so the non-Flex branch defines nothing -- there used to be a
+    // DUMMY_PROBE_SET process here whose output was never consumed.
     if (params.run_flex) {
-        if (params.probe_set) {
-            ch_probe_set = Channel.fromPath(params.probe_set).first()
-        } else {
-            ch_probe_set = DOWNLOAD_PROBE_SET(get_probe_set_url()).first()
-        }
-    } else {
-        ch_probe_set = DUMMY_PROBE_SET().first()
+        ch_probe_set = params.probe_set
+            ? channel.fromPath(params.probe_set, checkIfExists: true).first()
+            : DOWNLOAD_PROBE_SET(get_probe_set_url()).first()
     }
 
     // 3. Execution routing.
@@ -77,7 +203,7 @@ workflow {
             | flatMap { config_id, files ->
                 (files instanceof List ? files : [files]).collect { f ->
                     def parts = f.toString().replace('\\', '/').split('/')
-                    def i = parts.findIndexOf { it == 'per_sample_outs' }
+                    def i = parts.findIndexOf { part -> part == 'per_sample_outs' }
                     def name = (i >= 0 && i + 1 < parts.size()) ? parts[i + 1] : config_id
                     tuple(name, f)
                 }

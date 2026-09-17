@@ -1,0 +1,283 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/nf-austin/scrnaseq/main/nextflow_schema.json",
+  "title": "nf-austin/scrnaseq pipeline parameters",
+  "description": "End-to-end 10x scRNA-seq pipeline: Cell Ranger (count or multi/Flex) + species-aware scanpy QC.",
+  "type": "object",
+  "definitions": {
+    "input_output_options": {
+      "title": "Input/output options",
+      "type": "object",
+      "fa_icon": "fas fa-terminal",
+      "description": "Where the FASTQs come from and where results go.",
+      "required": [
+        "outdir"
+      ],
+      "properties": {
+        "input": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "schema": "assets/schema_input.json",
+          "mimetype": "text/csv",
+          "pattern": "^\\S+\\.(csv|tsv|txt)$",
+          "fa_icon": "fas fa-file-csv",
+          "description": "Samplesheet CSV listing the samples to run.",
+          "help_text": "Columns: `sample`, `fastq_dir`, `multi_config`. Populate `fastq_dir` for standard runs, or `multi_config` with `--run_flex true`. In Flex mode `sample` names the *config*; the per-sample outputs are keyed by the names Cell Ranger reports under `per_sample_outs/`, which come from the multi config. Mutually exclusive with the globs."
+        },
+        "fastq_dirs": {
+          "type": "string",
+          "fa_icon": "fas fa-folder",
+          "description": "Ad-hoc alternative: a directory glob, one directory of FASTQs per sample, e.g. 'data/*'.",
+          "help_text": "Standard (non-Flex) mode. The sample id is the directory's base name."
+        },
+        "multi_configs": {
+          "type": "string",
+          "fa_icon": "fas fa-file-csv",
+          "description": "Ad-hoc alternative for Flex mode: a glob matching Cell Ranger multi config CSVs.",
+          "help_text": "Used when --run_flex is true."
+        },
+        "outdir": {
+          "type": "string",
+          "default": "results",
+          "format": "directory-path",
+          "fa_icon": "fas fa-folder-open",
+          "description": "Output directory. Use an absolute path on a cluster or on cloud storage.",
+          "help_text": "nf-austin/echidna consumes this pipeline's output as `<outdir>/qc/{sample}/{sample}_annotated.h5ad`."
+        }
+      }
+    },
+    "biology_options": {
+      "title": "Biology and chemistry",
+      "type": "object",
+      "fa_icon": "fas fa-dna",
+      "description": "Species, chemistry and cell expectations.",
+      "properties": {
+        "species": {
+          "type": "string",
+          "default": "human",
+          "enum": [
+            "human",
+            "mouse"
+          ],
+          "fa_icon": "fas fa-paw",
+          "description": "Species. Drives the mitochondrial/ribosomal/haemoglobin gene prefixes used in QC and the auto-selected reference."
+        },
+        "flex_version": {
+          "type": "string",
+          "default": "v1",
+          "enum": [
+            "v1",
+            "v2"
+          ],
+          "fa_icon": "fas fa-flask",
+          "description": "Flex chemistry version; v2 is APEX. Selects the probe set when auto-downloading."
+        },
+        "expect_cells": {
+          "type": "integer",
+          "default": 10000,
+          "fa_icon": "fas fa-sort-numeric-up",
+          "description": "Expected number of recovered cells, passed to Cell Ranger."
+        }
+      }
+    },
+    "mode_options": {
+      "title": "Pipeline mode",
+      "type": "object",
+      "fa_icon": "fas fa-toggle-on",
+      "description": "Which Cell Ranger path runs, and optional QC steps.",
+      "properties": {
+        "run_flex": {
+          "type": "boolean",
+          "default": false,
+          "fa_icon": "fas fa-random",
+          "description": "Run Cell Ranger multi (Flex / multiplexed) instead of count.",
+          "help_text": "Also selects which samplesheet column is required: `multi_config` when true, `fastq_dir` when false."
+        },
+        "run_scrublet": {
+          "type": "boolean",
+          "default": true,
+          "fa_icon": "fas fa-clone",
+          "description": "Run Scrublet doublet detection during QC."
+        },
+        "create_bam": {
+          "type": "boolean",
+          "default": true,
+          "fa_icon": "fas fa-file-alt",
+          "description": "Produce BAM output. Cell Ranger >= 8 requires this to be set explicitly."
+        }
+      }
+    },
+    "reference_options": {
+      "title": "References",
+      "type": "object",
+      "fa_icon": "fas fa-book",
+      "description": "Cell Ranger transcriptome and Flex probe set.",
+      "properties": {
+        "transcriptome": {
+          "type": "string",
+          "format": "directory-path",
+          "exists": true,
+          "fa_icon": "fas fa-book",
+          "description": "Pre-downloaded Cell Ranger reference directory. Skips the download.",
+          "help_text": "The recommended path on HPC: the download runs inside a task and compute nodes usually have no outbound network. Fetch it once on a login node."
+        },
+        "probe_set": {
+          "type": "string",
+          "format": "file-path",
+          "exists": true,
+          "fa_icon": "fas fa-list",
+          "description": "Pre-downloaded Flex probe set CSV. Skips the download.",
+          "help_text": "Only used when --run_flex is true."
+        },
+        "transcriptome_url": {
+          "type": "string",
+          "fa_icon": "fas fa-link",
+          "description": "Override the auto-selected reference download URL.",
+          "hidden": true
+        },
+        "probe_set_url": {
+          "type": "string",
+          "fa_icon": "fas fa-link",
+          "description": "Override the auto-selected probe set download URL.",
+          "hidden": true
+        }
+      }
+    },
+    "container_options": {
+      "title": "Container options",
+      "type": "object",
+      "fa_icon": "fas fa-cubes",
+      "description": "Which image the QC step runs in.",
+      "properties": {
+        "scanpy_container": {
+          "type": "string",
+          "default": "ghcr.io/nf-austin/scrnaseq:1.0.0",
+          "fa_icon": "fas fa-box",
+          "description": "scanpy image used by SCANPY_QC. Cell Ranger and the download steps use public images.",
+          "hidden": true
+        }
+      }
+    },
+    "execution_options": {
+      "title": "Execution environment",
+      "type": "object",
+      "fa_icon": "fas fa-server",
+      "description": "Cluster scheduler, image caches and bind mounts. Relevant when running on HPC.",
+      "help_text": "Use the `slurm` profile together with an engine profile: `-profile slurm,singularity`.",
+      "properties": {
+        "slurm_queue": {
+          "type": "string",
+          "fa_icon": "fas fa-stream",
+          "description": "SLURM partition to submit to (sbatch --partition).",
+          "help_text": "Only used with `-profile slurm`. Left unset, no --partition flag is emitted and the cluster default applies."
+        },
+        "slurm_account": {
+          "type": "string",
+          "fa_icon": "fas fa-id-card",
+          "description": "SLURM account to charge (sbatch --account).",
+          "hidden": true
+        },
+        "cluster_options": {
+          "type": "string",
+          "fa_icon": "fas fa-sliders-h",
+          "description": "Raw sbatch options appended to every job, e.g. '--qos=long'.",
+          "help_text": "Use the `=` form for values starting with `--`, e.g. --cluster_options='--qos=long'; the space form is parsed as a bare flag.",
+          "hidden": true
+        },
+        "singularity_cache_dir": {
+          "type": "string",
+          "format": "directory-path",
+          "fa_icon": "fas fa-hdd",
+          "description": "Shared directory for pulled Singularity images.",
+          "help_text": "Put this on shared storage the compute nodes can read. The Cell Ranger image is multi-GB and $HOME is usually quota-limited."
+        },
+        "conda_cache_dir": {
+          "type": "string",
+          "format": "directory-path",
+          "fa_icon": "fas fa-hdd",
+          "description": "Shared directory for created conda environments.",
+          "hidden": true
+        },
+        "singularity_bind": {
+          "type": "string",
+          "fa_icon": "fas fa-link",
+          "description": "Extra paths to bind into the container, comma-separated, e.g. '/mnt/gpfs,/scratch'.",
+          "help_text": "autoMounts only binds paths Nextflow itself resolved. Cell Ranger multi also writes absolute host paths into its patched config, so a symlinked filesystem needs the real parent bound here."
+        }
+      }
+    },
+    "max_job_request_options": {
+      "title": "Maximum job request options",
+      "type": "object",
+      "fa_icon": "fab fa-acquisitions-incorporated",
+      "description": "Caps applied to every process.",
+      "help_text": "Cell Ranger requests 16 CPUs and 64 GB by default; it is also told --localcores/--localmem from those values.",
+      "properties": {
+        "max_cpus": {
+          "type": "integer",
+          "default": 32,
+          "fa_icon": "fas fa-microchip",
+          "description": "Maximum CPUs for any single job.",
+          "hidden": true
+        },
+        "max_memory": {
+          "type": "string",
+          "default": "128.GB",
+          "pattern": "^\\d+(\\.\\d+)?\\.?\\s*(K|M|G|T)?B$",
+          "fa_icon": "fas fa-memory",
+          "description": "Maximum memory for any single job.",
+          "hidden": true
+        },
+        "max_time": {
+          "type": "string",
+          "default": "72.h",
+          "pattern": "^(\\d+\\.?\\s*(s|m|h|d|day)\\s*)+$",
+          "fa_icon": "far fa-clock",
+          "description": "Maximum time for any single job.",
+          "hidden": true
+        }
+      }
+    },
+    "generic_options": {
+      "title": "Generic options",
+      "type": "object",
+      "fa_icon": "fas fa-file-import",
+      "description": "Rarely changed.",
+      "properties": {
+        "help": {
+          "type": "boolean",
+          "fa_icon": "fas fa-question-circle",
+          "description": "Print the help message and exit.",
+          "hidden": true
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$ref": "#/definitions/input_output_options"
+    },
+    {
+      "$ref": "#/definitions/biology_options"
+    },
+    {
+      "$ref": "#/definitions/mode_options"
+    },
+    {
+      "$ref": "#/definitions/reference_options"
+    },
+    {
+      "$ref": "#/definitions/container_options"
+    },
+    {
+      "$ref": "#/definitions/execution_options"
+    },
+    {
+      "$ref": "#/definitions/max_job_request_options"
+    },
+    {
+      "$ref": "#/definitions/generic_options"
+    }
+  ]
+}

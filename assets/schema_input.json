@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "$id": "https://raw.githubusercontent.com/nf-austin/scrnaseq/main/assets/schema_input.json",
+  "title": "nf-austin/scrnaseq samplesheet",
+  "description": "One row per sample. Populate `fastq_dir` for standard Cell Ranger count runs, or `multi_config` when --run_flex is true.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "sample": {
+        "type": "string",
+        "pattern": "^\\S+$",
+        "errorMessage": "Sample name must be provided and must not contain spaces",
+        "meta": ["id"],
+        "description": "Sample identifier, used for the Cell Ranger --id and the output subdirectory; must be unique. NOTE in Flex mode this names the *config*, and the per-sample outputs are keyed by the sample names Cell Ranger itself reports under per_sample_outs/, which come from the multi config rather than this column."
+      },
+      "fastq_dir": {
+        "type": "string",
+        "format": "directory-path",
+        "exists": true,
+        "pattern": "^\\S+$",
+        "errorMessage": "fastq_dir must not contain spaces",
+        "description": "Directory of 10x-style FASTQs for this sample. Required when --run_flex is false; ignored otherwise."
+      },
+      "multi_config": {
+        "type": "string",
+        "format": "file-path",
+        "exists": true,
+        "pattern": "^\\S+\\.csv$",
+        "errorMessage": "multi_config must be a .csv path without spaces",
+        "description": "Cell Ranger multi config CSV. Required when --run_flex is true; ignored otherwise."
+      }
+    },
+    "required": ["sample"]
+  }
+}

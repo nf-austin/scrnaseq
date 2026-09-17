@@ -46,6 +46,13 @@ process CELLRANGER_COUNT {
         --localmem=${task.memory.toGiga()} \\
         --disable-ui
     """
+
+    stub:
+    """
+    mkdir -p ${sample_id}/outs
+    touch ${sample_id}/outs/filtered_feature_bc_matrix.h5
+    touch ${sample_id}/outs/web_summary.html
+    """
 }
 
 process CELLRANGER_MULTI {
@@ -79,5 +86,12 @@ process CELLRANGER_MULTI {
         --localcores=${task.cpus} \\
         --localmem=${task.memory.toGiga()} \\
         --disable-ui
+    """
+
+    stub:
+    """
+    mkdir -p ${sample_id}/outs/per_sample_outs/${sample_id}/count
+    touch ${sample_id}/outs/per_sample_outs/${sample_id}/count/sample_filtered_feature_bc_matrix.h5
+    touch ${sample_id}/outs/per_sample_outs/${sample_id}/web_summary.html
     """
 }

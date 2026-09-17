@@ -1,0 +1,10 @@
+# Files surfaced in the Seqera Platform "Reports" tab after a run.
+reports:
+  "cellranger/**/web_summary.html":
+    display: "Cell Ranger web summary per sample"
+  "qc/**/*_annotated.h5ad":
+    display: "Per-sample QC-annotated AnnData"
+  "pipeline_info/execution_report.html":
+    display: "Nextflow execution report (resources, timings, task status)"
+  "pipeline_info/execution_timeline.html":
+    display: "Nextflow execution timeline"

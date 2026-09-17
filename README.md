@@ -4,13 +4,13 @@ A Nextflow pipeline for end-to-end single-cell RNA-seq processing: 10x Cell Rang
 
 ## Pipeline steps
 
-1. **Reference downloads** — Downloads and decompresses the 10x Genomics reference tarball and/or Flex probe set CSVs based on the `--species` and `--flex_version` (via `curl` inside an Ubuntu container). Skipped if local paths are provided.
+1. **Reference downloads** — Downloads and decompresses the 10x Genomics reference tarball and/or Flex probe set CSVs based on the `--species` and `--flex_version` (via `wget` inside a small public container). Skipped if local paths are provided.
 2. **Alignment & Quantification** (`cellranger count` or `cellranger multi`) — Processes raw FASTQ reads into feature-barcode matrices. For standard runs the FASTQ filename prefix (10x naming `<prefix>_S<n>_L<lane>_R<read>_001.fastq.gz`) is auto-detected from the input directory; the directory basename is only used as the cellranger `--id` / output folder name.
 3. **Automated QC** (`scanpy`) — Calculates species-specific mitochondrial/ribosomal/hemoglobin fractions (`MT-`/`RPS`/`RPL`/`HB*` for human, `mt-`/`Rps`/`Rpl`/`Hb*` for mouse), dynamic MAD-based sparsity and overabundance thresholds, and runs doublet detection (`scrublet`). Flags cells via a boolean `passing_qc` mask. Raw counts are preserved.
 
 ## Requirements
 
-- Nextflow >= 23.04
+- Nextflow >= 24.04.0
 - Docker or Singularity (Cell Ranger runs in the `nf-core/cellranger:10.0.0` container)
 - Conda / Mamba (the scanpy QC step is provisioned from `modules/scanpy_qc/environment.yml`; conda is auto-enabled by the `docker` and `singularity` profiles, or use `-profile conda` standalone)
 
@@ -104,6 +104,18 @@ nextflow run main.nf \
 
 | Parameter | Default | Description |
 | --- | --- | --- |
+| `--input` | *(recommended)* | Samplesheet CSV with `sample`, `fastq_dir`, `multi_config`. |
+| `--slurm_queue` | *(cluster default)* | SLURM partition. Used by `-profile slurm`. |
+| `--slurm_account` | *(none)* | SLURM account to charge. |
+| `--cluster_options` | *(none)* | Raw sbatch options; use the `=` form for `--`-prefixed values. |
+| `--singularity_cache_dir` | `$NXF_SINGULARITY_CACHEDIR` | Shared directory for pulled images. |
+| `--conda_cache_dir` | `$NXF_CONDA_CACHEDIR` | Shared directory for conda environments. |
+| `--singularity_bind` | *(none)* | Extra bind mounts, e.g. `/mnt/gpfs`. |
+| `--scanpy_container` | `ghcr.io/nf-austin/scrnaseq:1.0.0` | Image for `SCANPY_QC`. |
+
+
+| Parameter | Default | Description |
+| --- | --- | --- |
 | `--fastq_dirs` | `data/*` | Glob pattern for sample directories containing FASTQs (standard mode). |
 | `--multi_configs` | `configs/*.csv` | Glob pattern for Cell Ranger multi configuration files (flex mode). |
 | `--outdir` | `results` | Output directory. |
@@ -156,3 +168,80 @@ results/
 ```
 
 For standard runs `{id}` and `{sample_id}` are the same (the FASTQ directory basename). For Flex runs `{id}` is the multi-config basename and `{sample_id}` is the per-sample name emitted by `cellranger multi`.
+
+## Seqera Platform (Nextflow Tower)
+
+The repo ships everything Platform needs:
+
+- **`nextflow_schema.json`** — renders the launch form. `--input` appears as a file picker wired to
+  Data Explorer, options are grouped by stage, and tuning knobs are marked hidden.
+- **`assets/schema_input.json`** — the samplesheet contract (`sample`, `fastq_dir`, `multi_config`).
+  Two example sheets ship in `assets/`: one standard, one Flex.
+- **`tower.yml`** — puts the Cell Ranger web summaries, the QC-annotated h5ads and the Nextflow
+  execution report in the run's **Reports** tab.
+
+To add it: **Pipelines → Add pipeline**, point at this repository, and pick a compute environment.
+Use **absolute paths** for `--input`, the FASTQ directories it references, `--transcriptome` and
+`--outdir`.
+
+### A note on `sample` in Flex mode
+
+In standard mode the sheet's `sample` is the sample id, and it is what appears in `results/`. **In
+Flex mode it names the *config*.** The per-sample outputs are keyed by the sample names Cell Ranger
+itself reports under `per_sample_outs/`, which come from inside the multi config — so the names in
+`results/qc/` are those, not necessarily the `sample` column. This is a Cell Ranger behaviour the
+samplesheet cannot override.
+
+## HPC / SLURM
+
+The `slurm` profile sets only the executor and queue, so it composes with an engine profile in
+either order:
+
+```bash
+nextflow run nf-austin/scrnaseq \
+    -profile slurm,singularity \
+    --slurm_queue normal \
+    --input /mnt/gpfs/project/sheet.csv \
+    --transcriptome /mnt/gpfs/refs/refdata-gex-GRCh38-2024-A \
+    --outdir /mnt/gpfs/project/results \
+    --singularity_cache_dir /mnt/gpfs/shared/singularity
+```
+
+- **Pass `--transcriptome` (and `--probe_set` for Flex).** `DOWNLOAD_REFERENCE` fetches a multi-GB
+  10x reference *inside a task*, and compute nodes on most clusters have no outbound network. Fetch
+  it once on a login node; both download steps fail with a message naming the flag to use.
+- **Put `--singularity_cache_dir` on shared storage.** The Cell Ranger image alone is multi-GB and
+  `$HOME` is usually quota-limited and not always mounted on compute nodes.
+- **`--singularity_bind` matters more here than elsewhere.** `CELLRANGER_MULTI` writes absolute host
+  paths into its patched config via `sed`, so on a symlinked filesystem (`/data` → `/mnt/gpfs/...`)
+  the container resolves them to nothing. Bind the real parent: `--singularity_bind /mnt/gpfs`.
+- **Quote option values that start with `--` using the `=` form**, e.g.
+  `--cluster_options='--qos=long'`. The space form is parsed by Nextflow as a bare flag.
+- **Seqera Platform already sets the executor** when you launch against a SLURM compute environment,
+  so `-profile slurm` is mainly for launching by hand from a login node.
+
+## Container images
+
+| Image | Source | Used by |
+| --- | --- | --- |
+| `quay.io/nf-core/cellranger:10.0.0` | public | `CELLRANGER_COUNT`, `CELLRANGER_MULTI` |
+| `quay.io/biocontainers/wget:1.25.0` | public | `DOWNLOAD_REFERENCE` |
+| `quay.io/nf-core/ubuntu:22.04` | public | `DOWNLOAD_PROBE_SET` |
+| `ghcr.io/nf-austin/scrnaseq:<ver>` | `modules/scanpy_qc/Dockerfile` | `SCANPY_QC` |
+
+Only `SCANPY_QC` needs a built image — no public biocontainer carries scanpy, scrublet, leidenalg
+and igraph together. Everything else uses a public image. The GHCR package must be **public** for
+`nextflow run` to pull it without credentials.
+
+**`-profile conda` cannot run this pipeline end to end**: Cell Ranger is proprietary and is only
+distributed as a container image. `SCANPY_QC` does ship an `environment.yml`.
+
+## Notes
+
+- `nextflow run . -stub-run --input assets/samplesheet_example.csv --transcriptome <dir>` exercises
+  the real channel wiring and publishing with no containers and no data.
+- `nextflow lint main.nf nextflow.config modules/*/main.nf` catches config errors that `-preview`
+  accepts.
+- **Downstream contract:** `nf-austin/echidna` discovers this pipeline's output as
+  `{scrna_dir}/{sample}/{sample}_annotated.h5ad` with `--scrna_dir <outdir>/qc`. Do not move or
+  rename `SCANPY_QC`'s published path.
